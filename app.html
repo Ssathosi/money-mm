@@ -1,0 +1,760 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Keuangan Proyek — Full</title>
+
+  <!-- Tailwind (dev CDN ok for testing) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
+
+  <!-- Libraries -->
+  <script src="https://cdn.jsdelivr.net/npm/idb@7/build/umd.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.3.0/dist/chart.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+  <style>
+    :root { --sidebar-w:260px; }
+    body { transition: background-color .18s, color .18s; }
+    .sidebar { width: var(--sidebar-w); min-width: var(--sidebar-w); }
+    .btn-act { width:34px; height:34px; display:inline-flex; align-items:center; justify-content:center; border-radius:8px; transition:.12s; }
+    .media-preview { max-height:64px; max-width:64px; object-fit:cover; border-radius:6px; cursor:pointer; }
+    .muted { color:#6b7280; font-size:.9rem; }
+    .toast-enter { opacity:0; transform:translateY(20px); }
+    .toast-enter-active { opacity:1; transform:none; transition:all .28s ease; }
+    .toast-exit-active { opacity:0; transform:translateY(20px); transition:all .28s ease; }
+    .toast-progress { position:absolute; bottom:0; left:0; height:3px; background:rgba(255,255,255,0.9); animation-timing-function: linear; }
+
+    .due-overdue { background: rgba(254, 226, 226, 0.9) !important; }
+    .due-soon { background: rgba(255, 249, 196, 0.95) !important; }
+
+    .form-field-label { font-size: 0.95rem; margin-bottom: 0.25rem; display:block; color: #374151; }
+    .form-control { width:100%; border:1px solid #e5e7eb; border-radius:8px; padding:0.5rem 0.75rem; font-size:0.95rem; }
+    .form-control:focus { outline:none; box-shadow:0 0 0 3px rgba(6,182,212,0.12); border-color:#06b6d4; }
+    .dark .form-control { background:#0b1220; color:#d1d5db; border-color:#334155; }
+
+    .action-menu { min-width:140px; }
+    .kebab-btn { width:36px; height:36px; display:inline-flex; align-items:center; justify-content:center; border-radius:8px; }
+
+    /* mobile sidebar drawer */
+    @media (max-width:900px){
+      .sidebar { position:fixed; left:0; top:0; bottom:0; transform:translateX(-320px); transition:transform .18s ease; z-index:60; }
+      .sidebar.open { transform:translateX(0); }
+      #sidebarOverlay { position:fixed; inset:0; background:rgba(0,0,0,0.45); display:none; z-index:50; }
+      #sidebarOverlay.show { display:block; }
+      .main-with-sidebar { margin-left:0 !important; }
+    }
+
+    .group-hover-actions { opacity:0; transform:translateY(-6px); transition:all .14s; }
+    tr.group:hover .group-hover-actions { opacity:1; transform:none; }
+    @keyframes shrink { from { width:100% } to { width:0% } }
+  </style>
+</head>
+<body class="bg-gray-50 text-slate-800">
+
+  <!-- Mobile overlay for sidebar -->
+  <div id="sidebarOverlay"></div>
+
+  <div class="min-h-screen flex">
+    <!-- SIDEBAR -->
+    <aside id="sidebar" class="sidebar bg-gradient-to-b from-cyan-800 to-cyan-900 text-white p-5 md:block">
+      <div class="flex items-center gap-3 mb-6">
+        <div class="text-2xl"><i class="fa fa-wallet"></i></div>
+        <div>
+          <div class="text-sm font-semibold">Keuangan Proyek</div>
+          <div class="text-xs text-white/80">v1 — idb.js</div>
+        </div>
+      </div>
+
+      <nav class="space-y-1">
+        <button data-page="dashboard" class="nav-item w-full text-left px-3 py-2 rounded-lg flex items-center gap-3 hover:bg-white/6"><i class="fa fa-chart-bar w-4"></i> <span>Dashboard</span></button>
+        <button data-page="projects" class="nav-item w-full text-left px-3 py-2 rounded-lg flex items-center gap-3 hover:bg-white/6"><i class="fa fa-folder w-4"></i> <span>Proyek</span></button>
+        <button data-page="transactions" class="nav-item w-full text-left px-3 py-2 rounded-lg flex items-center gap-3 hover:bg-white/6"><i class="fa fa-receipt w-4"></i> <span>Transaksi</span></button>
+      </nav>
+
+      <div class="mt-6 border-t border-white/10 pt-4">
+        <div class="flex items-center justify-between px-3">
+          <div class="text-sm">Dark Mode</div>
+          <label class="inline-flex items-center cursor-pointer">
+            <input id="darkToggle" type="checkbox" class="hidden" />
+            <div id="darkThumb" class="w-10 h-6 rounded-full bg-white/20 relative">
+              <div id="darkDot" class="w-4 h-4 rounded-full bg-white absolute left-1 top-1 transition-all"></div>
+            </div>
+          </label>
+        </div>
+      </div>
+
+      <div class="mt-6 text-xs text-white/80">
+        Backup JSON untuk pindah device.
+      </div>
+    </aside>
+
+    <!-- MAIN -->
+    <div class="flex-1 md:ml-[var(--sidebar-w)] main-with-sidebar">
+      <header class="flex items-center justify-between bg-white/70 dark:bg-slate-900 p-4 border-b">
+        <div class="flex items-center gap-3">
+          <button id="mobileMenuBtn" class="md:hidden p-2 rounded-lg bg-slate-100"><i class="fa fa-bars"></i></button>
+          <h2 id="pageTitle" class="text-lg font-semibold">Dashboard</h2>
+        </div>
+
+        <div class="flex items-center gap-2">
+          <button id="btn-export-xlsx" class="hidden md:inline-flex bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-xl text-sm"><i class="fa fa-file-excel"></i> Excel</button>
+          <button id="btn-export-pdf" class="hidden md:inline-flex bg-rose-600 hover:bg-rose-700 text-white px-3 py-2 rounded-xl text-sm"><i class="fa fa-file-pdf"></i> PDF</button>
+          <button id="btn-export-backup" class="border border-slate-200 px-3 py-2 rounded-xl text-sm hidden md:inline-flex"><i class="fa fa-download"></i> Backup</button>
+          <button id="btn-import-backup" class="border border-slate-200 px-3 py-2 rounded-xl text-sm hidden md:inline-flex"><i class="fa fa-upload"></i> Import</button>
+        </div>
+      </header>
+
+      <main class="p-6 space-y-6">
+        <!-- DASHBOARD -->
+        <section id="page-dashboard" class="page card bg-white rounded-2xl shadow p-6">
+          <div class="flex justify-between items-start">
+            <div>
+              <h3 class="text-xl font-semibold">Dashboard</h3>
+              <p class="muted">Ringkasan & visual</p>
+            </div>
+          </div>
+
+          <div class="mt-6 grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <div class="p-4 rounded-xl border card"><div class="muted text-sm">Total Pemasukan</div><div id="dashIncome" class="text-2xl font-semibold">Rp0</div></div>
+            <div class="p-4 rounded-xl border card"><div class="muted text-sm">Total Pengeluaran</div><div id="dashExpense" class="text-2xl font-semibold">Rp0</div></div>
+            <div class="p-4 rounded-xl border card"><div class="muted text-sm">Sisa / Untung</div><div id="dashBalance" class="text-2xl font-semibold">Rp0</div></div>
+          </div>
+
+          <div class="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div class="p-4 rounded-xl border card">
+              <h4 class="font-semibold mb-2">Pemasukan vs Pengeluaran</h4>
+              <canvas id="barChart" height="220"></canvas>
+            </div>
+            <div class="p-4 rounded-xl border card">
+              <h4 class="font-semibold mb-2">Distribusi Pengeluaran</h4>
+              <canvas id="pieChart" height="220"></canvas>
+            </div>
+          </div>
+
+          <div class="mt-6 p-4 rounded-xl border card">
+            <h4 class="font-semibold mb-2">Aktivitas Terbaru</h4>
+            <ul id="activityList" class="mt-3 space-y-2 text-sm"></ul>
+          </div>
+        </section>
+
+        <!-- PROJECTS -->
+        <section id="page-projects" class="page card bg-white rounded-2xl shadow p-6 hidden">
+          <div class="flex justify-between items-center">
+            <div><h3 class="text-xl font-semibold">Proyek</h3><p class="muted">Buat, edit, hapus proyek</p></div>
+            <div><button id="btn-new-project" class="bg-cyan-600 hover:bg-cyan-700 text-white px-3 py-2 rounded-xl text-sm"><i class="fa fa-plus"></i> Proyek Baru</button></div>
+          </div>
+
+          <div class="mt-6"><div id="projectList" class="flex flex-wrap gap-2"></div><p id="projectEmpty" class="muted mt-3">Belum ada proyek. Klik "Proyek Baru".</p></div>
+        </section>
+
+        <!-- TRANSACTIONS -->
+        <section id="page-transactions" class="page card bg-white rounded-2xl shadow p-6 hidden">
+          <div class="flex justify-between items-start">
+            <div><h3 class="text-xl font-semibold">Transaksi</h3><p class="muted">Tambah, edit, hapus transaksi per proyek</p></div>
+            <div class="flex gap-2">
+              <button id="btn-add-income" class="bg-green-600 hover:bg-green-700 text-white px-3 py-2 rounded-xl text-sm"><i class="fa fa-arrow-up"></i> Tambah Pemasukan</button>
+              <button id="btn-add-expense" class="bg-red-600 hover:bg-red-700 text-white px-3 py-2 rounded-xl text-sm"><i class="fa fa-arrow-down"></i> Tambah Pengeluaran</button>
+            </div>
+          </div>
+
+          <div class="mt-4">
+            <label class="muted text-sm">Filter Periode</label>
+            <select id="periodFilter" class="border rounded-xl px-2 py-1 text-sm mt-1">
+              <option value="all">Semua</option>
+              <option value="7">7 Hari</option>
+              <option value="30">30 Hari</option>
+              <option value="month">Bulan Ini</option>
+            </select>
+          </div>
+
+          <div class="mt-4 overflow-x-auto rounded-xl border">
+            <table id="txTable" class="w-full text-sm">
+              <thead class="bg-slate-100 text-slate-600 text-xs">
+                <tr>
+                  <th class="p-2 text-left">Tanggal</th>
+                  <th class="p-2 text-left">Jenis</th>
+                  <th class="p-2 text-left">Detail</th>
+                  <th class="p-2 text-left">Jumlah</th>
+                  <th class="p-2 text-left">Nota</th>
+                  <th class="p-2 text-left">Due Date</th>
+                  <th class="p-2 text-left">Aksi</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-200"></tbody>
+            </table>
+          </div>
+
+          <div class="mt-4 flex gap-2">
+            <button id="exportXlsxBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-xl text-sm"><i class="fa fa-file-excel"></i> Excel</button>
+            <button id="exportPdfBtn" class="bg-rose-600 hover:bg-rose-700 text-white px-3 py-2 rounded-xl text-sm"><i class="fa fa-file-pdf"></i> PDF</button>
+            <button id="exportBackupBtn" class="border px-3 py-2 rounded-xl text-sm"><i class="fa fa-download"></i> Backup</button>
+            <button id="importBackupBtn" class="border px-3 py-2 rounded-xl text-sm"><i class="fa fa-upload"></i> Import</button>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <!-- modal image & forms -->
+  <div id="modal" class="hidden fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
+    <div class="bg-white w-full max-w-xl rounded-2xl shadow-lg p-6 max-h-[90vh] overflow-auto">
+      <div class="flex justify-between items-center border-b pb-3">
+        <h3 id="modalTitle" class="text-lg font-semibold">Form</h3>
+        <button id="modalClose" class="text-sm border border-slate-200 px-3 py-1 rounded-lg hover:bg-slate-50">Tutup</button>
+      </div>
+      <div id="modalBody" class="mt-4 grid gap-3"></div>
+    </div>
+  </div>
+
+  <div id="imgModal" class="hidden fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50">
+    <img id="imgPreview" src="" alt="Preview Nota" class="max-h-[90vh] max-w-[90vw] rounded-lg shadow-lg" />
+  </div>
+
+  <!-- context menu for mobile long-press -->
+  <div id="contextMenu" class="hidden fixed bg-white border rounded shadow text-sm z-60"></div>
+
+  <div id="toast" class="hidden fixed bottom-6 right-6 z-50 flex flex-col gap-2"></div>
+
+  <footer class="text-center text-xs text-slate-500 py-4 border-t">© 2025</footer>
+
+<script>
+(async function(){
+  // ===== utils =====
+  const fmtRp = v => (Number(v) || 0).toLocaleString('id-ID', { style:'currency', currency:'IDR', maximumFractionDigits:0 });
+  const toDDMMYYYY = iso => { if(!iso) return ''; const d=new Date(iso); return `${String(d.getDate()).padStart(2,'0')}-${String(d.getMonth()+1).padStart(2,'0')}-${d.getFullYear()}`; };
+  function toBase64(file){ return new Promise((res,rej)=>{ const r=new FileReader(); r.onload=e=>res(e.target.result); r.onerror=e=>rej(e); r.readAsDataURL(file); }); }
+  function clamp(v,min,max){ return Math.max(min, Math.min(max, v)); }
+
+  // ===== db (idb) =====
+  const DB_NAME = 'keuangan_proyek';
+  const DB_VERSION = 1;
+  const db = await idb.openDB(DB_NAME, DB_VERSION, {
+    upgrade(upgradeDb){
+      if(!upgradeDb.objectStoreNames.contains('projects')) upgradeDb.createObjectStore('projects',{keyPath:'id',autoIncrement:true});
+      if(!upgradeDb.objectStoreNames.contains('transactions')){
+        const s = upgradeDb.createObjectStore('transactions',{keyPath:'id',autoIncrement:true});
+        s.createIndex('byProject','projectId',{unique:false});
+        s.createIndex('byDate','date',{unique:false});
+      }
+      if(!upgradeDb.objectStoreNames.contains('activities')) upgradeDb.createObjectStore('activities',{keyPath:'id',autoIncrement:true});
+    }
+  });
+
+  // ===== state caches =====
+  let projects = await db.getAll('projects');
+  let transactions = await db.getAll('transactions');
+  let activities = await db.getAll('activities');
+  activities.sort((a,b)=> b.id - a.id);
+
+  let currentProject = null;
+  let barChart = null, pieChart = null;
+
+  // ===== toast =====
+  let toastId=0;
+  function showToast(msg,type='info',timeout=3000){
+    const c=document.getElementById('toast'); c.classList.remove('hidden');
+    let color='from-cyan-500 to-cyan-700', icon='<i class="fa fa-info-circle"></i>';
+    if(type==='success'){ color='from-emerald-500 to-emerald-700'; icon='<i class="fa fa-check-circle"></i>'; }
+    if(type==='error'){ color='from-rose-500 to-rose-700'; icon='<i class="fa fa-times-circle"></i>'; }
+    if(type==='warning'){ color='from-amber-400 to-amber-600'; icon='<i class="fa fa-exclamation-triangle"></i>'; }
+    const id=`toast-${++toastId}`;
+    const el=document.createElement('div'); el.id=id;
+    el.className=`relative toast-enter flex items-center justify-between gap-2 bg-gradient-to-r ${color} text-white px-4 py-3 rounded-xl shadow-lg text-sm overflow-hidden`;
+    el.innerHTML = `<div class="flex items-center gap-2">${icon}<span>${msg}</span></div><button class="ml-2 text-white/80 hover:text-white" onclick="dismissToast('${id}')"><i class='fa fa-times'></i></button><div class="toast-progress"></div>`;
+    c.appendChild(el);
+    const p = el.querySelector('.toast-progress'); p.style.width='100%'; p.style.animation=`shrink ${timeout}ms linear forwards`;
+    requestAnimationFrame(()=>el.classList.add('toast-enter-active'));
+    setTimeout(()=>dismissToast(id), timeout);
+  }
+  window.dismissToast = function(id){ const el=document.getElementById(id); if(!el) return; el.classList.add('toast-exit-active'); setTimeout(()=>{ el.remove(); if(!document.getElementById('toast').hasChildNodes()) document.getElementById('toast').classList.add('hidden'); },300); };
+
+  // ===== modal =====
+  const modal = document.getElementById('modal');
+  const modalBody = document.getElementById('modalBody');
+  const modalTitle = document.getElementById('modalTitle');
+  document.getElementById('modalClose').onclick = ()=> modal.classList.add('hidden');
+  function openModal(title, html, submitHandler){
+    modalTitle.textContent = title;
+    modalBody.innerHTML = html;
+    modal.classList.remove('hidden');
+    const form = modalBody.querySelector('form');
+    if(form){
+      form.onsubmit = async (e) => {
+        e.preventDefault();
+        const fd = new FormData(form);
+        await submitHandler(fd);
+        modal.classList.add('hidden');
+        await reloadCachesAndRender();
+      };
+    }
+  }
+  function showImageModal(src){ const m=document.getElementById('imgModal'); const i=document.getElementById('imgPreview'); i.src=src; m.classList.remove('hidden'); m.onclick=()=> m.classList.add('hidden'); }
+
+  async function pushActivity(text){
+    const obj = { text, ts: new Date().toLocaleString() };
+    const id = await db.add('activities', obj);
+    obj.id = id; activities.unshift(obj); if(activities.length>200) activities.length=200;
+    renderActivities();
+  }
+
+  // ===== projects CRUD =====
+  async function createProject(name, desc=''){
+    const obj = { name, desc, createdAt: new Date().toISOString() };
+    const id = await db.add('projects', obj); obj.id=id; projects.unshift(obj);
+    await pushActivity(`Buat proyek "${name}"`);
+    renderProjects(); renderDashboard();
+    return obj;
+  }
+  async function updateProject(obj){
+    await db.put('projects', obj);
+    const i = projects.findIndex(p=>p.id===obj.id); if(i>=0) projects[i]=obj;
+    await pushActivity(`Edit proyek "${obj.name}"`);
+    renderProjects(); renderDashboard();
+  }
+  async function deleteProject(id){
+    if(!confirm('Yakin hapus proyek ini beserta semua transaksinya?')) return;
+    const allTx = await db.getAll('transactions');
+    for(const t of allTx.filter(tt => tt.projectId === id)) await db.delete('transactions', t.id);
+    await db.delete('projects', id);
+    projects = projects.filter(p=>p.id!==id);
+    transactions = transactions.filter(t=>t.projectId!==id);
+    await pushActivity(`Hapus proyek id:${id}`);
+    if(currentProject && currentProject.id === id){ currentProject = null; showPage('projects'); }
+    renderProjects(); renderTransactions(); renderDashboard();
+  }
+
+  // ===== transactions CRUD =====
+  async function createTransaction(obj){
+    const id = await db.add('transactions', obj); obj.id = id; transactions.unshift(obj);
+    await pushActivity(`${obj.type==='income'?'Tambah pemasukan':'Tambah pengeluaran'} ${fmtRp(obj.amount)} di ${getProjectName(obj.projectId)}`);
+    renderTransactions(); renderDashboard();
+    return obj;
+  }
+  async function updateTransaction(obj){
+    await db.put('transactions', obj);
+    const i = transactions.findIndex(t=>t.id===obj.id); if(i>=0) transactions[i]=obj;
+    await pushActivity(`Edit transaksi id:${obj.id}`);
+    renderTransactions(); renderDashboard();
+  }
+  async function removeTransaction(id){
+    if(!confirm('Yakin hapus transaksi ini?')) return;
+    await db.delete('transactions', id);
+    transactions = transactions.filter(t=>t.id!==id);
+    await pushActivity(`Hapus transaksi id:${id}`);
+    renderTransactions(); renderDashboard();
+  }
+  function getProjectName(id){ const p = projects.find(x=>x.id===id); return p ? p.name : '(Proyek dihapus)'; }
+
+  // ===== render projects =====
+  function renderProjects(){
+    const list = document.getElementById('projectList'); list.innerHTML='';
+    projects.forEach(p=>{
+      const wrap = document.createElement('div');
+      wrap.className = 'project-item flex items-center gap-2 px-3 py-2 rounded-xl border bg-slate-50';
+      const area = document.createElement('div'); area.className='cursor-pointer flex-1'; area.textContent=p.name; area.onclick=()=> selectProject(p.id);
+      if(currentProject && currentProject.id===p.id) area.classList.add('text-cyan-600','font-semibold');
+      const actions = document.createElement('div'); actions.className='flex gap-2 opacity-0 group-hover-actions';
+      const btnEdit = document.createElement('button'); btnEdit.className='px-2 py-1 bg-blue-500 text-white rounded'; btnEdit.textContent='Edit'; btnEdit.onclick=(e)=>{ e.stopPropagation(); openEditProjectModal(p); };
+      const btnDel = document.createElement('button'); btnDel.className='px-2 py-1 bg-red-500 text-white rounded'; btnDel.textContent='Hapus'; btnDel.onclick=(e)=>{ e.stopPropagation(); deleteProject(p.id); };
+      actions.append(btnEdit, btnDel);
+      wrap.append(area, actions);
+      // show actions on hover of wrap
+      wrap.addEventListener('mouseenter', ()=> actions.style.opacity = '1');
+      wrap.addEventListener('mouseleave', ()=> actions.style.opacity = '0');
+      list.appendChild(wrap);
+    });
+    document.getElementById('projectEmpty').style.display = projects.length ? 'none' : '';
+  }
+
+  function openAddProjectModal(){
+    openModal('Tambah Proyek', `
+      <form class="grid gap-3">
+        <label><span class="form-field-label">Nama Proyek</span><input name="name" class="form-control" required/></label>
+        <label><span class="form-field-label">Deskripsi (opsional)</span><textarea name="desc" class="form-control"></textarea></label>
+        <div class="flex justify-end"><button class="bg-cyan-600 hover:bg-cyan-700 text-white px-4 py-2 rounded-lg text-sm">Simpan</button></div>
+      </form>
+    `, async (fd)=>{ const name=(fd.get('name')||'').toString().trim(); await createProject(name, fd.get('desc')||''); showToast('Proyek dibuat','success'); });
+  }
+
+  function openEditProjectModal(p){
+    openModal('Edit Proyek', `
+      <form class="grid gap-3">
+        <label><span class="form-field-label">Nama Proyek</span><input name="name" value="${(p.name||'').replace(/"/g,'&quot;')}" class="form-control" required/></label>
+        <label><span class="form-field-label">Deskripsi</span><textarea name="desc" class="form-control">${(p.desc||'')}</textarea></label>
+        <div class="flex justify-end"><button class="bg-cyan-600 hover:bg-cyan-700 text-white px-4 py-2 rounded-lg text-sm">Update</button></div>
+      </form>
+    `, async (fd)=>{ p.name = fd.get('name') || p.name; p.desc = fd.get('desc') || p.desc; await updateProject(p); showToast('Proyek diperbarui','success'); });
+  }
+
+  async function selectProject(id){
+    currentProject = projects.find(x=>x.id===id) || null;
+    showPage('transactions');
+    if(currentProject) document.getElementById('pageTitle').textContent = `Transaksi — ${currentProject.name}`;
+    transactions = await db.getAll('transactions'); transactions.sort((a,b)=> new Date(b.date)-new Date(a.date));
+    renderTransactions(); renderDashboard();
+  }
+
+  // ===== render transactions (with hover actions and mobile long-press) =====
+  function renderTransactions(){
+    const tbody = document.querySelector('#txTable tbody'); tbody.innerHTML='';
+    let txs = [...transactions];
+    if(currentProject) txs = txs.filter(t => t.projectId === currentProject.id);
+    const f = document.getElementById('periodFilter') ? document.getElementById('periodFilter').value : 'all';
+    if(f !== 'all'){
+      const now = new Date();
+      if(f === 'month'){ const start = new Date(now.getFullYear(), now.getMonth(), 1); txs = txs.filter(t => new Date(t.date) >= start); }
+      else { const cut = new Date(); cut.setDate(cut.getDate() - parseInt(f,10)); txs = txs.filter(t => new Date(t.date) >= cut); }
+    }
+    txs.forEach(t=>{
+      const tr = document.createElement('tr');
+      tr.className = 'group hover:bg-slate-50 relative';
+      // due classes
+      if(t.dueDate){
+        const due = new Date(t.dueDate); const today = new Date(); today.setHours(0,0,0,0);
+        const diff = Math.floor((due - today)/(1000*60*60*24));
+        if(diff < 0) tr.classList.add('due-overdue'); else if(diff <=3) tr.classList.add('due-soon');
+      }
+      const tdDate = document.createElement('td'); tdDate.className='p-2'; tdDate.textContent = toDDMMYYYY(t.date);
+      const tdType = document.createElement('td'); tdType.className='p-2'; tdType.textContent = t.type==='income' ? 'Pemasukan' : 'Pengeluaran';
+      const tdDetail = document.createElement('td'); tdDetail.className='p-2';
+      if(t.type==='income') tdDetail.innerHTML = `<strong>${t.source||'-'}</strong><div class="text-xs muted">${t.note||''}</div>`;
+      else tdDetail.innerHTML = `<strong>${t.item||'-'}</strong><div class="text-xs muted">${t.qty||0} x ${fmtRp(t.unitPrice)}${t.note?'<br>'+t.note:''}</div>`;
+      const tdAmount = document.createElement('td'); tdAmount.className='p-2'; tdAmount.textContent = fmtRp(t.amount);
+      const tdPhoto = document.createElement('td'); tdPhoto.className='p-2'; if(t.photo){ const img=document.createElement('img'); img.src=t.photo; img.className='media-preview'; img.onclick=()=>showImageModal(t.photo); tdPhoto.appendChild(img); } else tdPhoto.textContent='-';
+      const tdDue = document.createElement('td'); tdDue.className='p-2'; tdDue.textContent = t.dueDate ? toDDMMYYYY(t.dueDate) : '-';
+      const tdAct = document.createElement('td'); tdAct.className='p-2 relative';
+
+      // actions container: hidden by default, appear on hover (desktop)
+      const actionWrap = document.createElement('div'); actionWrap.className='hidden group-hover:flex gap-2 absolute right-3 top-1/2 -translate-y-1/2';
+      actionWrap.style.zIndex = '20';
+      const btnEdit = document.createElement('button'); btnEdit.className='px-2 py-1 bg-blue-500 text-white rounded'; btnEdit.textContent='Edit'; btnEdit.onclick = (e)=>{ e.stopPropagation(); openEditTransactionModal(t); };
+      const btnDel = document.createElement('button'); btnDel.className='px-2 py-1 bg-red-500 text-white rounded'; btnDel.textContent='Hapus'; btnDel.onclick = (e)=>{ e.stopPropagation(); removeTransaction(t.id); };
+      actionWrap.append(btnEdit, btnDel);
+      tdAct.appendChild(actionWrap);
+
+      // attach mobile long-press (touchstart/touchend)
+      let longTimer = null;
+      tr.addEventListener('touchstart', function(evt){
+        longTimer = setTimeout(()=> {
+          openContextMenu(t.id, evt.touches[0].clientX, evt.touches[0].clientY);
+        }, 600);
+      }, {passive:true});
+      tr.addEventListener('touchend', ()=> { if(longTimer) clearTimeout(longTimer); }, {passive:true});
+      tr.addEventListener('touchmove', ()=> { if(longTimer) clearTimeout(longTimer); }, {passive:true});
+
+      tr.append(tdDate, tdType, tdDetail, tdAmount, tdPhoto, tdDue, tdAct);
+      tbody.appendChild(tr);
+    });
+  }
+
+  // ===== activities render =====
+  function renderActivities(){
+    const ul = document.getElementById('activityList'); ul.innerHTML='';
+    activities.slice(0,20).forEach(a=>{
+      const li = document.createElement('li'); li.className='flex items-start gap-3';
+      li.innerHTML = `<div class="text-xs muted">${a.ts}</div><div class="text-sm">${a.text}</div>`;
+      ul.appendChild(li);
+    });
+  }
+
+  // ===== charts & dashboard =====
+  async function renderDashboard(){
+    const allTx = await db.getAll('transactions');
+    const inc = allTx.filter(t=>t.type==='income').reduce((s,t)=>s+Number(t.amount||0),0);
+    const exp = allTx.filter(t=>t.type==='expense').reduce((s,t)=>s+Number(t.amount||0),0);
+    document.getElementById('dashIncome').textContent = fmtRp(inc);
+    document.getElementById('dashExpense').textContent = fmtRp(exp);
+    document.getElementById('dashBalance').textContent = fmtRp(inc-exp);
+
+    // per-project stats
+    const stats = projects.map(p=>({id:p.id, name:p.name, income:0, expense:0}));
+    allTx.forEach(t=>{
+      const s = stats.find(x=>x.id===t.projectId); if(!s) return;
+      if(t.type==='income') s.income += Number(t.amount||0); else s.expense += Number(t.amount||0);
+    });
+
+    const labels = stats.map(s=>s.name||'—');
+    const incData = stats.map(s=>s.income);
+    const expData = stats.map(s=>s.expense);
+
+    const ctxBar = document.getElementById('barChart').getContext('2d');
+    if(barChart) barChart.destroy();
+    barChart = new Chart(ctxBar, { type:'bar', data:{ labels, datasets:[ { label:'Pemasukan', data:incData, backgroundColor:'rgba(34,197,94,0.85)' }, { label:'Pengeluaran', data:expData, backgroundColor:'rgba(239,68,68,0.85)' } ] }, options:{ responsive:true, plugins:{ legend:{ position:'bottom' } }, scales:{ y:{ beginAtZero:true } } } });
+
+    const expenseOnly = stats.filter(s=>s.expense>0);
+    const ctxPie = document.getElementById('pieChart').getContext('2d');
+    if(pieChart) pieChart.destroy();
+    pieChart = new Chart(ctxPie, { type:'pie', data:{ labels: expenseOnly.map(s=>s.name), datasets:[ { data: expenseOnly.map(s=>s.expense), backgroundColor: expenseOnly.map((_,i)=>['#f87171','#60a5fa','#34d399','#fbbf24','#a78bfa','#fb7185'][i%6]) } ] }, options:{ responsive:true, plugins:{ legend:{ position:'bottom' } } } });
+
+    activities = await db.getAll('activities'); activities.sort((a,b)=> b.id - a.id);
+    renderActivities();
+  }
+
+  // ===== export/import (projects + transactions) =====
+  async function exportBackupJSON(){
+    const projs = await db.getAll('projects'); const txs = await db.getAll('transactions'); const acts = await db.getAll('activities');
+    const payload = { projects: projs, transactions: txs, activities: acts, exportedAt: new Date().toISOString() };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type:'application/json' });
+    const fn = `backup_keuangan_${new Date().toISOString().slice(0,19).replace(/[:T]/g,'_')}.json`;
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = fn; document.body.appendChild(a); a.click(); a.remove();
+    showToast('Backup JSON telah diunduh','success');
+  }
+
+  function importBackupJSON(){
+    const inp = document.createElement('input'); inp.type='file'; inp.accept='application/json';
+    inp.onchange = async e => {
+      const f = e.target.files[0]; if(!f) return;
+      try{
+        const txt = await f.text(); const data = JSON.parse(txt);
+        if(!data.projects || !data.transactions) return showToast('File backup tidak valid','error');
+        if(confirm('Pilih OK = MERGE (tambahkan). Cancel = REPLACE (ganti semua).')){
+          // merge
+          const mapping = {};
+          const existing = await db.getAll('projects');
+          for(const p of data.projects){
+            const ex = existing.find(ep => ep.name === p.name);
+            if(ex){ mapping[p.id] = ex.id; } else { const newId = await db.add('projects', { name:p.name, desc:p.desc||'', createdAt:p.createdAt||new Date().toISOString() }); mapping[p.id] = newId; }
+          }
+          const newProjects = await db.getAll('projects');
+          for(const t of data.transactions){
+            const mapped = mapping[t.projectId] || (newProjects[0] ? newProjects[0].id : null);
+            const copy = { ...t }; delete copy.id; copy.projectId = mapped;
+            await db.add('transactions', copy);
+          }
+          for(const a of (data.activities||[])){ const copy = {...a}; delete copy.id; await db.add('activities', copy); }
+          await reloadCachesAndRender(); showToast('Import (merge) selesai','success');
+        } else {
+          // replace
+          if(!confirm('Anda memilih REPLACE. Semua data lokal akan dihapus. Lanjutkan?')) { showToast('Import dibatalkan','info'); return; }
+          await db.clear('transactions'); await db.clear('projects'); await db.clear('activities');
+          for(const p of data.projects){ const copy = {...p}; delete copy.id; await db.add('projects', copy); }
+          const newProjects = await db.getAll('projects');
+          for(const t of data.transactions){
+            const oldProj = data.projects.find(pp=>pp.id===t.projectId);
+            const found = newProjects.find(np => np.name === (oldProj ? oldProj.name : null));
+            const mappedProjectId = found ? found.id : (newProjects[0] ? newProjects[0].id : null);
+            const copy = {...t}; delete copy.id; copy.projectId = mappedProjectId;
+            await db.add('transactions', copy);
+          }
+          for(const a of (data.activities||[])){ const copy = {...a}; delete copy.id; await db.add('activities', copy); }
+          await reloadCachesAndRender(); showToast('Import (replace) selesai','success');
+        }
+      }catch(err){ console.error(err); showToast('Gagal import backup: format salah','error'); }
+    };
+    inp.click();
+  }
+
+  // ===== Export Excel (projects + transactions in separate sheets) =====
+  async function exportExcelAll(){
+    const projs = await db.getAll('projects');
+    const txs = await db.getAll('transactions');
+    const wb = XLSX.utils.book_new();
+    const ws1 = XLSX.utils.json_to_sheet(projs.map(p=>({ID:p.id, Nama:p.name, Deskripsi:p.desc||'', CreatedAt:p.createdAt||''})));
+    XLSX.utils.book_append_sheet(wb, ws1, 'Proyek');
+    const txRows = txs.map(t=>({
+      ID: t.id,
+      Project: getProjectName(t.projectId),
+      Tanggal: toDDMMYYYY(t.date),
+      Jenis: t.type,
+      Detail: t.type==='income' ? (t.source||'') : (t.item||''),
+      Catatan: t.note||'',
+      Jumlah: t.amount
+    }));
+    const ws2 = XLSX.utils.json_to_sheet(txRows);
+    XLSX.utils.book_append_sheet(wb, ws2, 'Transaksi');
+    const fname = `backup_keuangan_${new Date().toISOString().slice(0,19).replace(/[:T]/g,'_')}.xlsx`;
+    XLSX.writeFile(wb, fname);
+    showToast('Excel dibuat','success');
+  }
+
+  // ===== Export PDF (projects + transactions) =====
+  async function exportPDFAll(){
+    const projs = await db.getAll('projects');
+    const txs = await db.getAll('transactions');
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit:'pt' });
+    doc.setFontSize(14); doc.text('Backup Keuangan — Proyek & Transaksi', 40, 40);
+    doc.setFontSize(10); doc.text(`Tanggal: ${new Date().toLocaleString()}`, 40, 58);
+
+    // projects table
+    const projBody = projs.map(p=>[p.id, p.name, (p.desc||'')]);
+    doc.autoTable({ startY:80, head:[['ID','Nama','Deskripsi']], body: projBody, styles:{fontSize:9}, headStyles:{fillColor:[14,165,233], textColor:255} });
+
+    // transactions table (next)
+    const startY = doc.lastAutoTable ? doc.lastAutoTable.finalY + 10 : 160;
+    const txBody = txs.map(t=>[t.id, getProjectName(t.projectId), toDDMMYYYY(t.date), t.type, t.type==='income'? (t.source||'') : (t.item||''), fmtRp(t.amount)]);
+    doc.autoTable({ startY, head:[['ID','Proyek','Tanggal','Jenis','Detail','Jumlah']], body: txBody, styles:{fontSize:8}, headStyles:{fillColor:[14,165,233], textColor:255} });
+
+    const fname = `backup_keuangan_${new Date().toISOString().slice(0,19).replace(/[:T]/g,'_')}.pdf`;
+    doc.save(fname);
+    showToast('PDF dibuat','success');
+  }
+
+  // ===== transaction modals (add/edit) =====
+  function openAddIncomeModal(){
+    if(!currentProject){ showToast('Pilih proyek dulu','warning'); showPage('projects'); return; }
+    openModal('Tambah Pemasukan', `
+      <form class="grid gap-3">
+        <label><span class="form-field-label">Tanggal</span><input type="date" name="date" class="form-control" value="${new Date().toISOString().slice(0,10)}" required/></label>
+        <label><span class="form-field-label">Sumber</span><input name="source" class="form-control" required/></label>
+        <label><span class="form-field-label">Jumlah (Rp)</span><input type="number" name="amount" class="form-control" required/></label>
+        <label><span class="form-field-label">Catatan (opsional)</span><textarea name="note" class="form-control"></textarea></label>
+        <label><span class="form-field-label">Foto Nota (opsional)</span><input type="file" accept="image/*" name="photo" class="form-control"/></label>
+        <div class="flex justify-end"><button class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm">Simpan</button></div>
+      </form>
+    `, async (fd)=>{
+      let photo=null; const file = fd.get('photo'); if(file && file.size) photo = await toBase64(file);
+      const tr = { projectId: currentProject.id, type:'income', date:new Date(fd.get('date')).toISOString(), source: fd.get('source'), amount: Number(fd.get('amount')||0), note: fd.get('note')||'', photo, dueDate: null };
+      await createTransaction(tr); showToast('Pemasukan tersimpan','success');
+    });
+  }
+
+  function openAddExpenseModal(){
+    if(!currentProject){ showToast('Pilih proyek dulu','warning'); showPage('projects'); return; }
+    openModal('Tambah Pengeluaran', `
+      <form class="grid gap-3">
+        <label><span class="form-field-label">Tanggal</span><input type="date" name="date" class="form-control" value="${new Date().toISOString().slice(0,10)}" required/></label>
+        <label><span class="form-field-label">Nama Barang / Jasa</span><input name="item" class="form-control" required/></label>
+        <label><span class="form-field-label">Jumlah (qty)</span><input type="number" name="qty" value="1" class="form-control" required/></label>
+        <label><span class="form-field-label">Harga per unit (Rp)</span><input type="number" name="unitPrice" class="form-control" required/></label>
+        <label><span class="form-field-label">Catatan (opsional)</span><textarea name="note" class="form-control"></textarea></label>
+        <label><span class="form-field-label">Tanggal Jatuh Tempo (opsional)</span><input type="date" name="dueDate" class="form-control"/></label>
+        <label><span class="form-field-label">Foto Nota (opsional)</span><input type="file" accept="image/*" name="photo" class="form-control"/></label>
+        <div class="flex justify-end"><button class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm">Simpan</button></div>
+      </form>
+    `, async (fd)=>{
+      let photo=null; const file = fd.get('photo'); if(file && file.size) photo = await toBase64(file);
+      const qty = Number(fd.get('qty')||0), unit = Number(fd.get('unitPrice')||0);
+      const due = fd.get('dueDate') ? new Date(fd.get('dueDate')).toISOString() : null;
+      const tr = { projectId: currentProject.id, type:'expense', date:new Date(fd.get('date')).toISOString(), item: fd.get('item'), qty, unitPrice: unit, amount: qty*unit, note: fd.get('note')||'', photo, dueDate: due };
+      await createTransaction(tr); showToast('Pengeluaran tersimpan','success');
+    });
+  }
+
+  function openEditTransactionModal(tr){
+    if(!tr) return;
+    if(tr.type === 'income'){
+      openModal('Edit Pemasukan', `
+        <form class="grid gap-3">
+          <label><span class="form-field-label">Tanggal</span><input type="date" name="date" class="form-control" value="${new Date(tr.date).toISOString().slice(0,10)}" required/></label>
+          <label><span class="form-field-label">Sumber</span><input name="source" value="${(tr.source||'').replace(/"/g,'&quot;')}" class="form-control" required/></label>
+          <label><span class="form-field-label">Jumlah (Rp)</span><input type="number" name="amount" value="${tr.amount}" class="form-control" required/></label>
+          <label><span class="form-field-label">Catatan</span><textarea name="note" class="form-control">${tr.note||''}</textarea></label>
+          <label><span class="form-field-label">Ganti Foto Nota (opsional)</span><input type="file" accept="image/*" name="photo" class="form-control"/></label>
+          <div class="flex justify-end"><button class="bg-cyan-600 hover:bg-cyan-700 text-white px-4 py-2 rounded-lg text-sm">Update</button></div>
+        </form>
+      `, async (fd)=>{
+        const file = fd.get('photo'); if(file && file.size) tr.photo = await toBase64(file);
+        tr.date = new Date(fd.get('date')).toISOString();
+        tr.source = fd.get('source');
+        tr.amount = Number(fd.get('amount')||0);
+        tr.note = fd.get('note')||'';
+        await updateTransaction(tr); showToast('Pemasukan diperbarui','success');
+      });
+    } else {
+      openModal('Edit Pengeluaran', `
+        <form class="grid gap-3">
+          <label><span class="form-field-label">Tanggal</span><input type="date" name="date" class="form-control" value="${new Date(tr.date).toISOString().slice(0,10)}" required/></label>
+          <label><span class="form-field-label">Nama Barang / Jasa</span><input name="item" value="${(tr.item||'').replace(/"/g,'&quot;')}" class="form-control" required/></label>
+          <label><span class="form-field-label">Jumlah (qty)</span><input type="number" name="qty" value="${tr.qty||1}" class="form-control" required/></label>
+          <label><span class="form-field-label">Harga per unit (Rp)</span><input type="number" name="unitPrice" value="${tr.unitPrice||0}" class="form-control" required/></label>
+          <label><span class="form-field-label">Catatan</span><textarea name="note" class="form-control">${tr.note||''}</textarea></label>
+          <label><span class="form-field-label">Tanggal Jatuh Tempo (opsional)</span><input type="date" name="dueDate" value="${tr.dueDate?new Date(tr.dueDate).toISOString().slice(0,10):''}" class="form-control"/></label>
+          <label><span class="form-field-label">Ganti Foto Nota (opsional)</span><input type="file" accept="image/*" name="photo" class="form-control"/></label>
+          <div class="flex justify-end"><button class="bg-cyan-600 hover:bg-cyan-700 text-white px-4 py-2 rounded-lg text-sm">Update</button></div>
+        </form>
+      `, async (fd)=>{
+        const file = fd.get('photo'); if(file && file.size) tr.photo = await toBase64(file);
+        tr.date = new Date(fd.get('date')).toISOString();
+        tr.item = fd.get('item');
+        tr.qty = Number(fd.get('qty')||0);
+        tr.unitPrice = Number(fd.get('unitPrice')||0);
+        tr.amount = tr.qty * tr.unitPrice;
+        tr.note = fd.get('note')||'';
+        tr.dueDate = fd.get('dueDate') ? new Date(fd.get('dueDate')).toISOString() : null;
+        await updateTransaction(tr); showToast('Pengeluaran diperbarui','success');
+      });
+    }
+  }
+
+  // ===== context menu (mobile long-press) =====
+  window.openContextMenu = function(id,x,y){
+    const menu = document.getElementById('contextMenu');
+    menu.innerHTML = '';
+    const btnEdit = document.createElement('button'); btnEdit.className='block px-4 py-2 w-full text-left'; btnEdit.textContent='✏️ Edit'; btnEdit.onclick = ()=>{ menu.classList.add('hidden'); const t = transactions.find(tt=>tt.id===id); openEditTransactionModal(t); };
+    const btnDel = document.createElement('button'); btnDel.className='block px-4 py-2 w-full text-left text-red-600'; btnDel.textContent='🗑 Hapus'; btnDel.onclick = ()=>{ menu.classList.add('hidden'); removeTransaction(id); };
+    menu.appendChild(btnEdit); menu.appendChild(btnDel);
+    // clamp position inside viewport
+    const vw = Math.max(document.documentElement.clientWidth || 0, window.innerWidth || 0);
+    const vh = Math.max(document.documentElement.clientHeight || 0, window.innerHeight || 0);
+    const boxW = 160, boxH = 80;
+    let left = x; let top = y;
+    if(left + boxW > vw) left = vw - boxW - 8;
+    if(top + boxH > vh) top = vh - boxH - 8;
+    menu.style.left = left + 'px'; menu.style.top = top + 'px';
+    menu.classList.remove('hidden');
+  };
+  document.addEventListener('click', ()=> document.getElementById('contextMenu').classList.add('hidden'));
+
+  // ===== reload caches & render =====
+  async function reloadCachesAndRender(){
+    projects = await db.getAll('projects');
+    transactions = await db.getAll('transactions');
+    activities = await db.getAll('activities');
+    activities.sort((a,b)=> b.id - a.id);
+    renderProjects(); renderTransactions(); await renderDashboard();
+  }
+
+  // ===== page navigation & darkmode =====
+  function showPage(name){
+    document.querySelectorAll('.page').forEach(s=>s.classList.add('hidden'));
+    const el = document.getElementById('page-'+name);
+    if(el) el.classList.remove('hidden');
+    document.getElementById('pageTitle').textContent = name.charAt(0).toUpperCase()+name.slice(1);
+    document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
+    const nav = document.querySelector(`[data-page="${name}"]`); if(nav) nav.classList.add('active');
+    if(name==='dashboard') renderDashboard();
+    if(name==='projects') renderProjects();
+    if(name==='transactions') renderTransactions();
+  }
+  function setDark(enabled){ if(enabled){ document.documentElement.classList.add('dark'); localStorage.setItem('keu_dark','1'); document.getElementById('darkToggle').checked=true; } else { document.documentElement.classList.remove('dark'); localStorage.removeItem('keu_dark'); document.getElementById('darkToggle').checked=false; } }
+
+  // ===== bind UI events =====
+  document.getElementById('mobileMenuBtn').addEventListener('click', ()=>{ document.getElementById('sidebar').classList.add('open'); document.getElementById('sidebarOverlay').classList.add('show'); });
+  document.getElementById('sidebarOverlay').addEventListener('click', ()=>{ document.getElementById('sidebar').classList.remove('open'); document.getElementById('sidebarOverlay').classList.remove('show'); });
+  document.querySelectorAll('.nav-item').forEach(b => b.addEventListener('click', ()=> showPage(b.dataset.page)));
+  document.getElementById('btn-new-project').addEventListener('click', openAddProjectModal);
+  document.getElementById('btn-add-income').addEventListener('click', openAddIncomeModal);
+  document.getElementById('btn-add-expense').addEventListener('click', openAddExpenseModal);
+  document.getElementById('periodFilter').addEventListener('change', renderTransactions);
+  document.getElementById('exportXlsxBtn')?.addEventListener('click', ()=> exportExcelAll());
+  document.getElementById('exportPdfBtn')?.addEventListener('click', ()=> exportPDFAll());
+  document.getElementById('exportBackupBtn').addEventListener('click', exportBackupJSON);
+  document.getElementById('importBackupBtn').addEventListener('click', importBackupJSON);
+  document.getElementById('btn-export-xlsx').addEventListener('click', ()=> exportExcelAll());
+  document.getElementById('btn-export-pdf').addEventListener('click', ()=> exportPDFAll());
+  document.getElementById('btn-export-backup').addEventListener('click', exportBackupJSON);
+  document.getElementById('btn-import-backup').addEventListener('click', importBackupJSON);
+  document.getElementById('darkToggle').addEventListener('change', e => setDark(e.target.checked));
+  setDark(localStorage.getItem('keu_dark') === '1');
+
+  // ===== initial render =====
+  await reloadCachesAndRender();
+  showPage('dashboard');
+
+  // sample if empty
+  if(projects.length === 0){
+    const p = await createProject('Contoh Proyek','Proyek demo');
+    await createTransaction({ projectId:p.id, type:'income', date:new Date().toISOString(), source:'Klien Demo', amount:1500000, note:'DP', photo:null, dueDate:null });
+    await createTransaction({ projectId:p.id, type:'expense', date:new Date().toISOString(), item:'Bahan', qty:3, unitPrice:200000, amount:600000, note:'Beli bahan', photo:null, dueDate: new Date(Date.now()+2*24*3600*1000).toISOString() });
+    await reloadCachesAndRender();
+  }
+
+})(); // end IIFE
+</script>
+</body>
+</html>
